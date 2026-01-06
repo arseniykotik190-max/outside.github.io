@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Block Blast</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+:root{
+  --bg:#050505;
+  --panel:rgba(255,255,255,.06);
+  --grid:#1a1a1a;
+  --accent:#ffb300;
+  --text:#e6e6eb;
+}
+
+*{box-sizing:border-box}
+
+body{
+  margin:0;
+  background:#000;
+  color:var(--text);
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  text-align:center;
+  overflow:hidden;
+}
+
+h2{margin:12px 0}
+
+canvas{
+  background:#0b0b0b;
+  border-radius:18px;
+  box-shadow:0 25px 60px rgba(0,0,0,.9);
+  touch-action:none;
+}
+
+#blocks{
+  display:flex;
+  justify-content:center;
+  gap:16px;
+  margin:18px 0 28px;
+}
+
+.block-card{
+  background:var(--panel);
+  padding:10px;
+  border-radius:14px;
+}
+
+#intro,#redirect{
+  position:fixed;
+  inset:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:rgba(0,0,0,.92);
+  z-index:10;
+}
+
+#redirect{display:none}
+
+.card{
+  background:var(--panel);
+  padding:28px 32px;
+  border-radius:22px;
+  max-width:360px;
+  box-shadow:0 30px 80px rgba(0,0,0,.8);
+}
+
+.card p{margin:0;font-size:18px}
+.card span{display:block;margin-top:10px;opacity:.7}
+
+#countdown{
+  font-size:42px;
+  margin-top:10px;
+  color:var(--accent);
+  font-weight:700;
+}
+
+button{
+  margin-top:18px;
+  padding:12px 26px;
+  border:none;
+  border-radius:999px;
+  background:linear-gradient(135deg,#ffb300,#ff9100);
+  color:#000;
+  font-weight:600;
+  cursor:pointer;
+}
+</style>
+</head>
+<body>
+
+<!-- ИНТРО -->
+<div id="intro">
+  <div class="card">
+    <p>Запомни, последнее количество очков — это твой ключ к следующему</p>
+    <span>outside development</span>
+    <button onclick="startGame()">Начать</button>
+  </div>
+</div>
+
+<!-- РЕДИРЕКТ -->
+<div id="redirect">
+  <div class="card">
+    <p>Переход через</p>
+    <div id="countdown">5</div>
+  </div>
+</div>
+
+<h2>Очки: <span id="score">0</span> <3 </h2>
+<canvas id="game" width="400" height="400"></canvas>
+<div id="blocks"></div>
+
+<script>
+const canvas=document.getElementById("game");
+const ctx=canvas.getContext("2d");
+const SIZE=40,GRID=10;
+const MAX_SCORE=2110;
+
+let score=0,locked=true,redirectStarted=false;
+let field=Array.from({length:GRID},()=>Array(GRID).fill(0));
+
+const SHAPES=[
+ [[1]],
+ [[1,1]],
+ [[1],[1]],
+ [[1,1,1]],
+ [[1],[1],[1]],
+ [[1,1],[1,1]],
+ [[1,1,1],[0,1,0]]
+];
+
+let available=[],active=null;
+
+function clone(s){return JSON.parse(JSON.stringify(s))}
+function rand(){return clone(SHAPES[Math.floor(Math.random()*SHAPES.length)])}
+
+function startGame(){
+  document.getElementById("intro").style.display="none";
+  locked=false;
+  genBlocks();
+  draw();
+}
+
+function genBlocks(){
+  available=[rand(),rand(),rand()];
+  renderBlocks();
+}
+
+function renderBlocks(){
+  const div=document.getElementById("blocks");
+  div.innerHTML="";
+  available.forEach((s,i)=>{
+    const c=document.createElement("canvas");
+    c.width=120;c.height=120;
+    c.className="block-card";
+    const cx=c.getContext("2d");
+    s.forEach((r,y)=>r.forEach((v,x)=>{
+      if(v){
+        cx.fillStyle="#ffb300";
+        cx.fillRect(x*30+6,y*30+6,26,26);
+      }
+    }));
+    c.onmousedown=e=>active={s,i};
+    c.ontouchstart=e=>active={s,i};
+    div.appendChild(c);
+  });
+}
+
+function draw(){
+  ctx.clearRect(0,0,400,400);
+  for(let y=0;y<GRID;y++){
+    for(let x=0;x<GRID;x++){
+      ctx.strokeStyle=varGrid();
+      ctx.strokeRect(x*SIZE,y*SIZE,SIZE,SIZE);
+      if(field[y][x]){
+        ctx.fillStyle="#4caf50";
+        ctx.fillRect(x*SIZE,y*SIZE,SIZE,SIZE);
+      }
+    }
+  }
+}
+
+function varGrid(){return "#1a1a1a"}
+
+function canPlace(s,gx,gy){
+  for(let y=0;y<s.length;y++)
+    for(let x=0;x<s[y].length;x++)
+      if(s[y][x]&&(gx+x<0||gy+y<0||gx+x>=GRID||gy+y>=GRID||field[gy+y][gx+x]))
+        return false;
+  return true;
+}
+
+function place(s,gx,gy){
+  s.forEach((r,y)=>r.forEach((v,x)=>{
+    if(v&&score<MAX_SCORE){
+      field[gy+y][gx+x]=1;
+      score=Math.min(score+10,MAX_SCORE);
+    }
+  }));
+  animateClear();
+}
+
+function animateClear(){
+  let lines=[];
+  for(let y=0;y<GRID;y++) if(field[y].every(v=>v)) lines.push(y);
+  if(!lines.length) return updateScore();
+
+  let t=0;
+  const anim=setInterval(()=>{
+    t++;
+    lines.forEach(y=>field[y].fill(t%2));
+    draw();
+    if(t>4){
+      clearInterval(anim);
+      lines.forEach(y=>{
+        field.splice(y,1);
+        field.unshift(Array(GRID).fill(0));
+        score=Math.min(score+100,MAX_SCORE);
+      });
+      updateScore();
+    }
+  },80);
+}
+
+function updateScore(){
+  document.getElementById("score").textContent=score;
+  if(score>=MAX_SCORE&&!redirectStarted){
+    redirectStarted=true;
+    locked=true;
+    startRedirect();
+  }
+}
+
+function startRedirect(){
+  const box=document.getElementById("redirect");
+  const c=document.getElementById("countdown");
+  let t=5;
+  box.style.display="flex";
+  c.textContent=t;
+  const timer=setInterval(()=>{
+    t--;
+    c.textContent=t;
+    if(t<=0){
+      clearInterval(timer);
+      location.href="https://outsiderskii.github.io";
+    }
+  },1000);
+}
+
+function gridPos(e){
+  const r=canvas.getBoundingClientRect();
+  return{
+    x:Math.floor((e.clientX-r.left)/SIZE),
+    y:Math.floor((e.clientY-r.top)/SIZE)
+  };
+}
+
+function move(e){
+  if(!active||locked)return;
+  draw();
+  const {x,y}=gridPos(e);
+  active.s.forEach((r,sy)=>r.forEach((v,sx)=>{
+    if(v){
+      ctx.fillStyle="#ffb300";
+      ctx.fillRect((x+sx)*SIZE,(y+sy)*SIZE,SIZE,SIZE);
+    }
+  }));
+}
+
+function drop(e){
+  if(!active||locked)return;
+  const {x,y}=gridPos(e);
+  if(canPlace(active.s,x,y)){
+    place(active.s,x,y);
+    available[active.i]=rand();
+    renderBlocks();
+  }
+  active=null;
+}
+
+canvas.onmousemove=e=>move(e);
+canvas.onmouseup=e=>drop(e);
+canvas.ontouchmove=e=>move(e.touches[0]);
+canvas.ontouchend=e=>drop(e.changedTouches[0]);
+
+draw();
+</script>
+
+</body>
+</html>
